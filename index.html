@@ -1936,6 +1936,20 @@
         <button class="btn-primary" style="width:100%" type="button" onclick="closeVerticalDropdown()">Done</button>
       </div>
     </div>
+    <div class="date-filter-wrap" id="customer-filter-wrap" style="display:none">
+      <label class="filter-label" for="customer-filter-btn">Customer</label>
+      <button type="button" class="filter-select date-filter-btn" id="customer-filter-btn" onclick="toggleCustomerDropdown(event)">All</button>
+      <div class="date-dropdown" id="customer-dropdown" style="width:320px">
+        <input type="text" id="customer-search" class="date-search-input" placeholder="Search customers…" oninput="filterCustomerList()" autocomplete="off">
+        <div class="date-dropdown-actions">
+          <button type="button" onclick="selectAllCustomers()">Select all</button>
+          <button type="button" onclick="clearAllCustomers()">Clear</button>
+          <span class="date-dropdown-count" id="customer-dropdown-count"></span>
+        </div>
+        <div class="date-list" id="customer-list" style="max-height:300px"></div>
+        <button class="btn-primary" style="width:100%" type="button" onclick="closeCustomerDropdown()">Done</button>
+      </div>
+    </div>
   </div>
   <div class="topbar-right">
     <div class="theme-picker">
@@ -2270,6 +2284,7 @@ function updateVerticalFilterBtnLabel() {
 
 function toggleVerticalDropdown(e) {
   if (e) e.stopPropagation();
+  document.getElementById('customer-dropdown')?.classList.remove('show');
   document.getElementById('vertical-dropdown').classList.toggle('show');
 }
 
@@ -2287,6 +2302,142 @@ document.addEventListener('click', (e) => {
   if (!wrap || !dd || !dd.classList.contains('show')) return;
   if (!wrap.contains(e.target)) closeVerticalDropdown();
 });
+
+
+// ── Customer multi-select slicer (User Name) ──────────────
+let allCustomers = [];
+let selectedCustomers = new Set();
+let customerFilterActive = false;
+
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getUniqueCustomers(rows) {
+  const m = {};
+  rows.forEach(r => {
+    const v = String(r['User Name'] ?? '').trim();
+    if (!v) return;
+    m[v] = (m[v] || 0) + 1;
+  });
+  return Object.entries(m)
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }))
+    .map(([value, count]) => ({ value, count }));
+}
+
+function filterRowsByCustomers(rows, active, selected) {
+  if (!active) return rows;
+  return rows.filter(r => selected.has(String(r['User Name'] ?? '').trim()));
+}
+
+function initCustomerFilter(rows) {
+  const all = getUniqueCustomers(rows);
+  allCustomers = all;
+  selectedCustomers = new Set(all.map(c => c.value));
+  customerFilterActive = false;
+  const search = document.getElementById('customer-search');
+  if (search) search.value = '';
+  renderCustomerList();
+  updateCustomerFilterBtnLabel();
+  const wrap = document.getElementById('customer-filter-wrap');
+  if (wrap) wrap.style.display = all.length ? 'flex' : 'none';
+}
+
+function renderCustomerList() {
+  const list = document.getElementById('customer-list');
+  if (!list) return;
+  if (!allCustomers.length) {
+    list.innerHTML = '<div class="date-empty">No customers found</div>';
+    return;
+  }
+  const q = (document.getElementById('customer-search')?.value || '').trim().toLowerCase();
+  list.innerHTML = allCustomers.map(c => {
+    const hidden = q && !c.value.toLowerCase().includes(q);
+    return `
+    <label class="date-item" data-label="${escapeAttr(c.value.toLowerCase())}" style="${hidden ? 'display:none' : ''}">
+      <input type="checkbox" value="${escapeAttr(c.value)}" ${selectedCustomers.has(c.value) ? 'checked' : ''} onchange="onCustomerCheckboxChange()">
+      <span title="${escapeAttr(c.value)}">${escapeAttr(c.value)}</span>
+      <span class="dcount">${c.count}</span>
+    </label>`;
+  }).join('');
+}
+
+function onCustomerCheckboxChange() {
+  const checked = Array.from(document.querySelectorAll('#customer-list input[type="checkbox"]:checked')).map(cb => cb.value);
+  selectedCustomers = new Set(checked);
+  customerFilterActive = selectedCustomers.size !== allCustomers.length;
+  updateCustomerFilterBtnLabel();
+  applyFilters();
+}
+
+function selectAllCustomers() {
+  selectedCustomers = new Set(allCustomers.map(c => c.value));
+  customerFilterActive = false;
+  updateCustomerFilterBtnLabel();
+  renderCustomerList();
+  applyFilters();
+}
+
+function clearAllCustomers() {
+  selectedCustomers = new Set();
+  customerFilterActive = true;
+  updateCustomerFilterBtnLabel();
+  renderCustomerList();
+  applyFilters();
+}
+
+function filterCustomerList() {
+  const q = document.getElementById('customer-search').value.trim().toLowerCase();
+  document.querySelectorAll('#customer-list .date-item').forEach(item => {
+    const label = item.getAttribute('data-label') || '';
+    item.style.display = (!q || label.includes(q)) ? 'flex' : 'none';
+  });
+}
+
+function updateCustomerFilterBtnLabel() {
+  const btn = document.getElementById('customer-filter-btn');
+  if (!btn) return;
+  const total = allCustomers.length, selN = selectedCustomers.size;
+  const countEl = document.getElementById('customer-dropdown-count');
+  if (!customerFilterActive || selN === total) {
+    btn.textContent = 'All';
+  } else if (selN === 0) {
+    btn.textContent = 'None selected';
+  } else if (selN === 1) {
+    const name = Array.from(selectedCustomers)[0];
+    btn.textContent = name.length > 22 ? name.slice(0, 20) + '…' : name;
+  } else {
+    btn.textContent = selN + ' selected';
+  }
+  if (countEl) countEl.textContent = selN + ' / ' + total + ' selected';
+}
+
+function toggleCustomerDropdown(e) {
+  if (e) e.stopPropagation();
+  // close other similar dropdowns
+  document.getElementById('vertical-dropdown')?.classList.remove('show');
+  document.getElementById('customer-dropdown')?.classList.toggle('show');
+}
+
+function closeCustomerDropdown() {
+  const dd = document.getElementById('customer-dropdown');
+  if (dd) dd.classList.remove('show');
+  const search = document.getElementById('customer-search');
+  if (search) search.value = '';
+  renderCustomerList();
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('customer-filter-wrap');
+  const dd = document.getElementById('customer-dropdown');
+  if (!wrap || !dd || !dd.classList.contains('show')) return;
+  if (!wrap.contains(e.target)) closeCustomerDropdown();
+});
+
 
 function fmtDateLabel(iso) {
   const d = new Date(iso + 'T00:00:00');
@@ -3627,7 +3778,8 @@ function getFilteredRows() {
   const dateFiltered = filterRowsByHandoverDates(midFiltered, dateFilterActive, selectedHandoverDates);
   const createdDateFiltered = filterRowsByCreatedDates(dateFiltered, createdDateFilterActive, selectedCreatedDates);
   const countryFiltered = filterRowsByCountry(createdDateFiltered, selectedCountry);
-  return filterRowsByVerticals(countryFiltered, verticalFilterActive, selectedVerticals);
+  const verticalFiltered = filterRowsByVerticals(countryFiltered, verticalFilterActive, selectedVerticals);
+  return filterRowsByCustomers(verticalFiltered, customerFilterActive, selectedCustomers);
 }
 
 function applyFilters() {
@@ -3681,6 +3833,7 @@ function renderDashboard(rows, fname) {
   initDateFilter('handover', rows);
   initDateFilter('created', rows);
   initVerticalFilter(rows);
+  initCustomerFilter(rows);
   
   // Process with All (no filter)
   allData = processRows(rows);
@@ -3718,9 +3871,11 @@ function resetDash() {
   document.getElementById('date-filter-wrap').style.display = 'none';
   document.getElementById('created-date-filter-wrap').style.display = 'none';
   document.getElementById('vertical-filter-wrap').style.display = 'none';
+  document.getElementById('customer-filter-wrap').style.display = 'none';
   closeDateFilterDropdown('handover');
   closeDateFilterDropdown('created');
   closeVerticalDropdown();
+  if (typeof closeCustomerDropdown === 'function') closeCustomerDropdown();
   document.getElementById('fileInput').value = '';
   allData = null;
   rawRows = null;
@@ -3735,6 +3890,11 @@ function resetDash() {
   allVerticals = [];
   selectedVerticals = new Set();
   verticalFilterActive = false;
+  allCustomers = [];
+  selectedCustomers = new Set();
+  customerFilterActive = false;
+  const cfw = document.getElementById('customer-filter-wrap');
+  if (cfw) cfw.style.display = 'none';
   DATE_KEYS.handover.expanded = new Set();
   DATE_KEYS.created.expanded = new Set();
   window._lmSelectedCarrier = null;
@@ -4248,6 +4408,8 @@ function buildAiContext(userQuestion) {
     createdDatesActive: !!createdDateFilterActive,
     verticalsActive: !!verticalFilterActive,
     verticalsSelected: verticalFilterActive ? selectedVerticals.size : 'all',
+    customersActive: !!customerFilterActive,
+    customersSelected: customerFilterActive ? selectedCustomers.size : 'all',
   };
 
   // Full breakdowns — every group, not top-N
